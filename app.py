@@ -145,6 +145,7 @@ else:
         menu = sac.menu([
             sac.MenuItem('Dashboard', icon='grid-fill'),
             sac.MenuItem('Nova Sessão', icon='lightning-charge-fill'),
+            sac.MenuItem('Gerenciar Missões', icon='clipboard-data-fill'),
             sac.MenuItem('Planejador', icon='calendar2-range-fill'),
             sac.MenuItem('Configurações', icon='gear-fill'),
         ], size='lg', color='indigo', variant='filled')
@@ -255,10 +256,52 @@ else:
                 inicio = datetime.now().isoformat()
                 fim = (datetime.now() + timedelta(minutes=foco_ia)).isoformat()
                 database.adicionar_evento(tar, inicio, fim, foco_ia)
-                st.toast("💾 Sessão salva no calendário!", icon="✅")
+                st.success("💾 Sessão salva no calendário!", icon="✅")
                 
             else:
                 st.error("IA não carregada. Verifique os arquivos .h5")
+
+    elif menu == 'Gerenciar Missões':
+        st.markdown("<h1 style='color: white; font-weight: 800;'>📂 Diário de Missões</h1>", unsafe_allow_html=True)
+        
+        evs = database.get_eventos()
+        if not evs:
+            st.info("Nenhum registro no banco de dados.")
+        else:
+            # Ordena do mais novo pro mais velho
+            evs_ord = sorted(evs, key=lambda x: x['start'], reverse=True)
+            
+            # Cabeçalho da Tabela Customizada
+            c1, c2, c3 = st.columns([3, 2, 1])
+            c1.markdown("**MISSÃO**")
+            c2.markdown("**DATA**")
+            c3.markdown("**AÇÃO**")
+            st.markdown("---")
+            
+            for ev in evs_ord:
+                dt = datetime.fromisoformat(ev['start']).strftime("%d/%m - %H:%M")
+                
+                c1, c2, c3 = st.columns([3, 2, 1])
+                
+                # Define cor do texto baseado no tipo (pra ficar visual)
+                cor_texto = "#3F8CFF"
+                if "Prova" in ev['title']: cor_texto = "#FF5275"
+                
+                with c1:
+                    st.markdown(f"<span style='color:{cor_texto}; font-weight:bold'>{ev['title']}</span>", unsafe_allow_html=True)
+                with c2:
+                    st.write(dt)
+                with c3:
+                    # Botão de Excluir com chave única
+                    if st.button("🗑️ Excluir", key=f"del_{ev['id']}"):
+                        sucesso = database.deletar_evento(ev['id'])
+                        if sucesso:
+                            st.success("Apagado!")
+                            st.experimental_rerun()
+                        else:
+                            st.error("Erro.")
+                
+                st.markdown("<hr style='margin:5px 0; opacity:0.1'>", unsafe_allow_html=True)
 
     elif menu == 'Planejador':
         st.markdown("<h1 style='color: white; font-weight: 800;'>🎓 Arquiteto de Rotina</h1>", unsafe_allow_html=True)
