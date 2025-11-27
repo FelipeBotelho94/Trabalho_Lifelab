@@ -11,6 +11,42 @@ from datetime import datetime, timedelta
 import time
 import plotly.express as px # Biblioteca de gráficos
 
+def gerar_roteiro_estudo(minutos_totais):
+    """
+    Quebra o tempo total em blocos de foco e pausa.
+    Retorna uma lista de strings HTML para exibir.
+    """
+    roteiro = []
+    
+    # Se for pouco tempo (menos de 30min), é um tiro só
+    if minutos_totais <= 30:
+        roteiro.append(f"🔥 {minutos_totais} min Foco Total")
+    
+    # Se for tempo médio (entre 30 e 60), quebra em 2
+    elif minutos_totais <= 60:
+        bloco1 = int(minutos_totais * 0.6) # 60% do tempo
+        pausa = 5
+        bloco2 = minutos_totais - bloco1 - pausa
+        
+        roteiro.append(f"🔥 {bloco1} min Foco Intenso")
+        roteiro.append(f"☕ {pausa} min Descanso")
+        roteiro.append(f"🔥 {bloco2} min Foco Final")
+        
+    # Se for muito tempo (> 60), Pomodoro Clássico Adaptado
+    else:
+        # Tenta fazer blocos de 25 a 30 min
+        blocos = minutos_totais // 30
+        resto = minutos_totais % 30
+        
+        for i in range(blocos):
+            roteiro.append(f"🔥 25 min Foco")
+            roteiro.append(f"☕ 5 min Pausa")
+        
+        if resto > 0:
+            roteiro.append(f"🔥 {resto} min Fechamento")
+            
+    return roteiro
+
 # --- CONFIG ---
 st.set_page_config(layout="wide", page_title="Sentinela Dashboard", page_icon="🌑")
 database.inicializar_db()
@@ -85,15 +121,16 @@ def renderizar_calendario_html(ano, mes, eventos):
     html += '</div></div>' # Fecha grid e container
     return html
 
-def desenhar_card_lateral(titulo, data_obj, cor_border):
-    d = data_obj.strftime("%d")
-    h = data_obj.strftime("%H:%M")
+def desenhar_card_lateral(titulo, data_obj, cor_classe, minutos_totais):
+    dia = data_obj.strftime("%d")
+    mes_hora = data_obj.strftime("%B, %H:%M").upper()
+    
     st.markdown(f"""
-    <div class="event-card" style="border-left: 3px solid {cor_border};">
-        <div class="card-day-big">{d}</div>
-        <div style="overflow: hidden;">
+    <div class="event-card {cor_classe}">
+        <div class="card-day-big">{dia}</div>
+        <div style="overflow:hidden">
             <div class="card-title">{titulo}</div>
-            <div class="card-time">{h} • AGENDADO</div>
+            <div class="card-time">{mes_hora} • {minutos_totais} MIN</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -322,11 +359,15 @@ else:
                 evs = sorted(eventos, key=lambda x: x['start'])
                 for ev in evs[-4:]:
                     dt = datetime.fromisoformat(ev['start'])
-                    cor = "#3F8CFF"
+                    
+                    # Cores
+                    bg = "card-neon-blue" # Cor padrão
                     if "Prova" in ev['title']: cor = "#FF5275"
                     elif "Estudar" in ev['title']: cor = "#6C5DD3"
                     elif "Codar" in ev['title']: cor = "#00D2FC"
-                    desenhar_card_lateral(ev['title'], dt, cor)
+                    
+                    minutos_reais = ev['minutos_foco_planejado']
+                    desenhar_card_lateral(ev['title'], dt, bg, minutos_reais)
                     
                     # --- BOTÃO MÁGICO ---
                     if st.button(f"▶ INICIAR", key=f"start_{ev['id']}", use_container_width=True):
@@ -334,6 +375,13 @@ else:
                         st.session_state.cronometro_ativo = True
                         st.session_state.inicio_cronometro = datetime.now()
                         st.session_state.tarefa_atual = ev['title']
+                        
+                        # Salva a meta de tempo e inicia no modo FOCO
+                        st.session_state.meta_minutos = minutos_reais
+                        st.session_state.modo_timer = 'Foco' # Pode ser 'Foco' ou 'Pausa'
+                        st.session_state.tempo_pausa_acumulado = 0
+                        st.session_state.inicio_pausa = None
+                        
                         # Força a ida para a página do Cronômetro
                         st.session_state['navegacao_atual'] = 'Cronômetro'
                         st.experimental_rerun()
@@ -393,48 +441,130 @@ else:
     elif st.session_state['navegacao_atual'] == 'Cronômetro':
         st.markdown("<h1 style='color: white; font-weight: 800;'>⏱️ Modo de Foco</h1>", unsafe_allow_html=True)
         
-        if 'cronometro_ativo' not in st.session_state:
-            st.session_state.cronometro_ativo = False
+        # Inicializa variáveis se entrou direto na aba sem clicar no dashboard
+        if 'cronometro_ativo' not in st.session_state: st.session_state.cronometro_ativo = False
+        if 'modo_timer' not in st.session_state: st.session_state.modo_timer = 'Foco'
+        if 'tempo_pausa_acumulado' not in st.session_state: st.session_state.tempo_pausa_acumulado = 0
         
         if not st.session_state.cronometro_ativo:
-            st.info("Nenhuma tarefa ativa. Inicie pelo Dashboard ou escolha abaixo:")
-            df = database.get_tarefas()
-            tar = st.selectbox("Tarefa", df['nome'])
-            if st.button("🔥 INICIAR AGORA", type="primary"):
-                st.session_state.cronometro_ativo = True
-                st.session_state.inicio_cronometro = datetime.now()
-                st.session_state.tarefa_atual = tar
-                st.experimental_rerun()
+            st.info("Selecione uma tarefa para começar.")
+            c1, c2 = st.columns([2, 1])
+            with c1:
+                df = database.get_tarefas()
+                tarefa_generica = st.selectbox("📚 Tarefa Geral", df['nome'])
+            with c2:
+                st.write(""); st.write("")
+                if st.button("🔥 COMEÇAR", type="primary", use_container_width=True):
+                    st.session_state.cronometro_ativo = True
+                    st.session_state.inicio_cronometro = datetime.now()
+                    st.session_state.tarefa_atual = tarefa_generica
+                    st.session_state.meta_minutos = 60 # Padrão se for manual
+                    st.session_state.modo_timer = 'Foco'
+                    st.session_state.tempo_pausa_acumulado = 0
+                    st.experimental_rerun()
         else:
-            # TELA DE FOCO
-            delta = datetime.now() - st.session_state.inicio_cronometro
-            minutos = int(delta.total_seconds() // 60)
-            segundos = int(delta.total_seconds() % 60)
-            tempo_str = f"{minutos:02d}:{segundos:02d}"
+            # --- AQUI É A MÁGICA DO COACH ---
             
+            # 1. Define a Estratégia (O Conselho)
+            meta = st.session_state.get('meta_minutos', 45)
+            conselho = ""
+            if meta <= 30: conselho = f"⚡ **Tiro Curto:** Mantenha foco total por {meta} min sem pausas."
+            elif meta <= 60: conselho = f"🧠 **Ciclo Recomendado:** Foco intenso até cansar, depois 5 min de pausa."
+            else: conselho = f"🍅 **Modo Pomodoro:** Quebre em blocos de 25 min com pausas de 5 min."
+            
+            # Mostra o Conselho no topo
+            st.info(f"🎯 **ESTRATÉGIA IA:** {conselho}")
+            
+            # 2. Cálculos do Tempo
+            agora = datetime.now()
+            
+            if st.session_state.modo_timer == 'Foco':
+                # Tempo total decorrido desde o início
+                delta_total = agora - st.session_state.inicio_cronometro
+                # Desconta as pausas que já aconteceram
+                segundos_uteis = delta_total.total_seconds() - st.session_state.tempo_pausa_acumulado
+                
+                cor_timer = "#00D2FC" # Azul
+                texto_status = "EM FOCO 🔥"
+                
+            else: # Modo Pausa
+                # Calcula quanto tempo está nessa pausa atual
+                delta_pausa_atual = agora - st.session_state.inicio_pausa
+                segundos_pausa_atual = delta_pausa_atual.total_seconds()
+                
+                # O tempo útil está congelado (Total até o inicio da pausa - pausas anteriores)
+                tempo_corrido_no_inicio_pausa = st.session_state.inicio_pausa - st.session_state.inicio_cronometro
+                segundos_uteis = tempo_corrido_no_inicio_pausa.total_seconds() - st.session_state.tempo_pausa_acumulado
+                
+                # Mostra o timer da PAUSA
+                segundos_mostrados = segundos_pausa_atual
+                cor_timer = "#FF5275" # Rosa/Vermelho
+                texto_status = "EM DESCANSO ☕"
+
+            # Formatação do Relógio Principal (Foco)
+            min_f = int(segundos_uteis // 60)
+            seg_f = int(segundos_uteis % 60)
+            str_foco = f"{min_f:02d}:{seg_f:02d}"
+            
+            # VISUAL DO TIMER
             st.markdown(f"""
-            <div style="text-align: center; padding: 40px; background: #050505; border: 2px solid #00D2FC; border-radius: 20px;">
-                <h3 style="color: #666; margin:0;">EM PROGRESSO</h3>
-                <h1 style="color: #fff; margin:10px 0; font-size: 32px;">{st.session_state.tarefa_atual}</h1>
-                <h1 style="font-size: 100px; color: #00D2FC; margin: 0; font-family: monospace; text-shadow: 0 0 20px #00D2FC;">{tempo_str}</h1>
+            <div style="text-align: center; padding: 30px; background: #080808; border: 2px solid {cor_timer}; border-radius: 20px; box-shadow: 0 0 40px {cor_timer}40;">
+                <h3 style="color: {cor_timer}; margin:0; letter-spacing: 3px; text-transform: uppercase;">{texto_status}</h3>
+                <h2 style="color: #fff; margin:10px 0;">{st.session_state.tarefa_atual}</h2>
+                <h1 style="font-size: 100px; color: {cor_timer}; margin: 0; font-family: monospace; text-shadow: 0 0 20px {cor_timer};">
+                    {str_foco}
+                </h1>
             </div>
             """, unsafe_allow_html=True)
             
-            if st.button("🛑 PARAR E SALVAR", type="primary", use_container_width=True):
-                # Salva no banco (usando a função nova que criamos no database.py)
-                fim = datetime.now()
-                min_totais = int(delta.total_seconds() / 60)
-                if min_totais < 1: min_totais = 1
-                
-                database.finalizar_missao_manual(st.session_state.tarefa_atual, min_totais, 
-                                                 st.session_state.inicio_cronometro.isoformat(), fim.isoformat())
-                st.session_state.cronometro_ativo = False
-                st.success(f"Salvo! +{min_totais} min.")
-                time.sleep(2)
-                st.session_state['navegacao_atual'] = 'Dashboard' # Volta pro inicio
-                st.experimental_rerun()
-                
-            time.sleep(1) # Atualiza relógio
+            # 3. CONTROLES (Botões Lado a Lado)
+            st.write("")
+            b1, b2 = st.columns(2)
+            
+            with b1:
+                if st.session_state.modo_timer == 'Foco':
+                    if st.button("☕ INICIAR PAUSA", use_container_width=True):
+                        st.session_state.modo_timer = 'Pausa'
+                        st.session_state.inicio_pausa = datetime.now()
+                        st.experimental_rerun()
+                else:
+                    # Estava em pausa, vai voltar
+                    if st.button("⚡ VOLTAR AO FOCO", type="primary", use_container_width=True):
+                        # Calcula quanto tempo ficou parado e soma no acumulado
+                        delta_p = datetime.now() - st.session_state.inicio_pausa
+                        st.session_state.tempo_pausa_acumulado += delta_p.total_seconds()
+                        st.session_state.modo_timer = 'Foco'
+                        st.session_state.inicio_pausa = None
+                        st.experimental_rerun()
+
+            with b2:
+                if st.button("🛑 ENCERRAR SESSÃO", type="secondary", use_container_width=True):
+                    # Se encerrar durante a pausa, consolida a pausa atual
+                    if st.session_state.modo_timer == 'Pausa':
+                         delta_p = datetime.now() - st.session_state.inicio_pausa
+                         st.session_state.tempo_pausa_acumulado += delta_p.total_seconds()
+                    
+                    # Calcula final
+                    delta_total = datetime.now() - st.session_state.inicio_cronometro
+                    tempo_liquido = delta_total.total_seconds() - st.session_state.tempo_pausa_acumulado
+                    minutos_reais = int(tempo_liquido / 60)
+                    
+                    if minutos_reais < 1: minutos_reais = 1
+                    
+                    database.finalizar_missao_manual(
+                        st.session_state.tarefa_atual,
+                        minutos_reais,
+                        st.session_state.inicio_cronometro.isoformat(),
+                        datetime.now().isoformat()
+                    )
+                    
+                    st.session_state.cronometro_ativo = False
+                    st.success(f"🎉 Sessão Finalizada! Tempo Líquido de Foco: {minutos_reais} min.")
+                    time.sleep(3)
+                    st.session_state['navegacao_atual'] = 'Dashboard'
+                    st.experimental_rerun()
+            
+            time.sleep(1)
             st.experimental_rerun()
 
     elif menu == 'Nova Sessão':

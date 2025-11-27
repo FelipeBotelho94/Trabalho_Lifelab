@@ -111,7 +111,7 @@ def adicionar_evento(tarefa, inicio_iso, fim_iso, minutos_foco):
 
 def get_eventos():
     conn = conectar()
-    df = pd.read_sql_query("SELECT id, tarefa_nome, inicio, fim, concluido FROM agenda", conn)
+    df = pd.read_sql_query("SELECT id, tarefa_nome, inicio, fim, concluido, minutos_foco_planejado FROM agenda", conn)
     conn.close()
     
     eventos = []
@@ -122,7 +122,8 @@ def get_eventos():
             "start": row['inicio'],
             "end": row['fim'],
             "backgroundColor": cor,
-            "id": str(row['id'])
+            "id": str(row['id']),
+            "minutos_foco_planejado": row['minutos_foco_planejado']
         })
     return eventos
 
