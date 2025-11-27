@@ -138,3 +138,28 @@ def deletar_evento(evento_id):
         return False
     finally:
         conn.close()
+        
+# --- NOVAS FUNÇÕES PARA GRÁFICOS E CRONÔMETRO ---
+
+def get_dados_concluidos():
+    """Busca apenas as missões que foram realmente feitas para o gráfico"""
+    conn = conectar()
+    # Pega nome, data de inicio e o tempo REAL executado
+    df = pd.read_sql_query("""
+        SELECT tarefa_nome, inicio, minutos_foco_realizado 
+        FROM agenda 
+        WHERE concluido = 1
+    """, conn)
+    conn.close()
+    return df
+
+def finalizar_missao_manual(nome_tarefa, minutos_reais, inicio_iso, fim_iso):
+    """Salva uma sessão feita pelo cronômetro"""
+    conn = conectar()
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO agenda (tarefa_nome, inicio, fim, minutos_foco_planejado, minutos_foco_realizado, concluido)
+        VALUES (?, ?, ?, ?, ?, 1)
+    """, (nome_tarefa, inicio_iso, fim_iso, minutos_reais, minutos_reais))
+    conn.commit()
+    conn.close()
