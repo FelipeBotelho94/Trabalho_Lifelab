@@ -153,12 +153,7 @@ else:
         # TÍTULO E CONTROLE DE MÊS
         c_title, c_sel = st.columns([3, 1])
         with c_title:
-            st.markdown("""
-                <h1 style='font-weight: 800; font-size: 36px; margin-bottom: 20px; 
-                text-transform: uppercase; letter-spacing: 2px; color: #FFFFFF;'>
-                Central de Comando
-                </h1>
-            """, unsafe_allow_html=True)
+            st.markdown("<h1 style='font-weight:800; text-transform:uppercase; letter-spacing:2px; background: -webkit-linear-gradient(45deg, #00c6fb, #005bea); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'>Central de Comando</h1>", unsafe_allow_html=True)
         with c_sel:
             # Seletor simples de mês (Poderia ser mais complexo, mas vamos focar no visual)
             mes_atual = datetime.now().month
