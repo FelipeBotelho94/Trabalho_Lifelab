@@ -190,53 +190,133 @@ else:
                 st.info("Sem missões.")
 
     elif menu == 'Nova Sessão':
-        st.title("🤖 Foco Inteligente (IA V3)")
+        st.markdown("<h1 style='color: white; font-weight: 800;'>⚡ Nova Sessão (IA)</h1>", unsafe_allow_html=True)
+        
         c1, c2 = st.columns(2)
         with c1:
-            df_tarefas = database.get_tarefas()
-            tarefa_nome = st.selectbox("O que fazer?", df_tarefas['nome'])
-            categoria_ia = df_tarefas[df_tarefas['nome'] == tarefa_nome].iloc[0]['categoria_ia']
-            local = st.selectbox("Local:", ["Casa", "Biblioteca", "Café/Rua"])
-            ruido = st.select_slider("Ruído:", ["Silencioso", "Moderado", "Barulhento"])
-        with c2:
-            sono = st.slider("Sono (h):", 0.0, 12.0, 7.0)
-            jejum = st.number_input("Jejum (h):", 0.0, 24.0, 2.0)
-            reflexo = st.slider("Reflexo (ms):", 200, 600, 300)
+            df = database.get_tarefas()
+            # Dropdown de tarefas
+            tar = st.selectbox("O que vamos atacar?", df['nome'])
+            # Pega o ID da categoria oculto
+            cat = df[df['nome']==tar].iloc[0]['categoria_ia']
             
-        if st.button("🧠 Calcular com IA", type="primary"):
+            local = st.selectbox("Onde você está?", ["Casa", "Biblioteca", "Café/Rua"])
+            rui = st.select_slider("Nível de Ruído", ["Silencioso", "Moderado", "Barulhento"])
+            # Mapas para converter texto em número para a IA
+            mapa_local = {"Casa":0, "Biblioteca":1, "Café/Rua":2}
+            mapa_ruido = {"Silencioso":0, "Moderado":1, "Barulhento":2}
+
+        with c2:
+            # Inputs Biológicos
+            sono = st.slider("Horas de Sono (Noite passada)", 0.0, 12.0, 7.0)
+            jej = st.number_input("Horas sem comer (Jejum)", 0.0, 24.0, 2.0)
+            ref = st.slider("Nível de Alerta (Reflexo)", 200, 600, 300, help="Menor = Mais rápido")
+            
+            # Inputs Subjetivos (Escondidos no expander pra limpar o visual)
+            with st.expander("Detalhes da Tarefa"):
+                prazo = st.slider("Urgência (Prazo)", 1, 10, 5)
+                dif = st.slider("Dificuldade", 1, 5, 3)
+                inter = st.slider("Interesse", 1, 5, 3)
+
+        st.markdown("---")
+
+        if st.button("🧠 PROCESSAR DADOS", type="primary", use_container_width=True):
             if model:
-                mapa_local = {"Casa":0, "Biblioteca":1, "Café/Rua":2}
-                mapa_ruido = {"Silencioso":0, "Moderado":1, "Barulhento":2}
+                # 1. Prepara os dados (O vetor de 11 dimensões que a IA aprendeu)
                 agora = datetime.now()
-                input_data = scaler.transform([[agora.weekday(), agora.hour, mapa_local[local], mapa_ruido[ruido], categoria_ia, 5, 3, 3, sono, jejum, reflexo]])
-                foco = int(model.predict(input_data)[0][0])
-                pausa = int(foco * 0.2)
-                c_r1, c_r2 = st.columns(2)
-                c_r1.metric("⏱️ Foco", f"{foco} min")
-                c_r2.metric("☕ Pausa", f"{pausa} min")
+                
+                # Vetor: [Dia, Hora, Local, Ruido, Cat, Prazo, Dif, Inter, Sono, Jejum, Reflexo]
+                dados_entrada = [[
+                    agora.weekday(), agora.hour, 
+                    mapa_local[local], mapa_ruido[rui],
+                    cat, prazo, dif, inter, 
+                    sono, jej, ref
+                ]]
+                
+                # 2. Normaliza e Prevê
+                input_scaled = scaler.transform(dados_entrada)
+                predicao = model.predict(input_scaled)[0][0]
+                foco_ia = int(predicao)
+                pausa_ia = int(foco_ia * 0.2) # 20% de pausa
+                
+                # 3. Exibe Resultado "Gamer"
+                c_res1, c_res2, c_res3 = st.columns(3)
+                c_res1.metric("⏱️ Foco Sugerido", f"{foco_ia} min")
+                c_res2.metric("☕ Pausa", f"{pausa_ia} min")
+                
+                # Análise de Buffs/Debuffs (Explicação)
+                msg = "🟢 Condições Normais"
+                if jej > 4: msg = "🔴 Debuff: Fome detectada"
+                elif sono < 5: msg = "🔴 Debuff: Sono crítico"
+                elif local == "Biblioteca": msg = "🔵 Buff: Ambiente Focado"
+                c_res3.info(msg)
+                
+                # 4. Salva Automaticamente
                 inicio = datetime.now().isoformat()
-                fim = (datetime.now() + timedelta(minutes=foco)).isoformat()
-                database.adicionar_evento(tarefa_nome, inicio, fim, foco)
-                st.success("✅ Agendado!")
-            else: st.error("IA Off")
+                fim = (datetime.now() + timedelta(minutes=foco_ia)).isoformat()
+                database.adicionar_evento(tar, inicio, fim, foco_ia)
+                st.toast("💾 Sessão salva no calendário!", icon="✅")
+                
+            else:
+                st.error("IA não carregada. Verifique os arquivos .h5")
 
     elif menu == 'Planejador':
-        st.title("🎓 Planejador de Rotina")
-        with st.form("plano"):
+        st.markdown("<h1 style='color: white; font-weight: 800;'>🎓 Arquiteto de Rotina</h1>", unsafe_allow_html=True)
+        st.info("Defina seu objetivo e a IA distribuirá a carga de estudos até a data.")
+        
+        with st.form("form_plano"):
             c_a, c_b = st.columns(2)
-            meta = c_a.text_input("Objetivo (ex: Prova AWS)")
-            data_alvo = c_b.date_input("Data da Prova")
+            meta = c_a.text_input("Nome do Objetivo", placeholder="Ex: Prova de AWS Cloud")
+            data_alvo = c_b.date_input("Data do Evento/Prova", min_value=datetime.now())
+            
+            c_c, c_d = st.columns(2)
             df_tarefas = database.get_tarefas()
-            tarefa_base = st.selectbox("Matéria Base:", df_tarefas['nome'])
-            conhecimento = st.slider("Nível Atual (1-10):", 1, 10, 3)
-            dif = st.slider("Dificuldade (1-5):", 1, 5, 3)
-            if st.form_submit_button("Gerar Cronograma"):
+            tarefa_base = c_c.selectbox("Matéria Base", df_tarefas['nome'])
+            
+            # Dias da semana (Multiselect é melhor aqui)
+            dias_semana = st.multiselect("Dias disponíveis para estudar:", 
+                                         ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"],
+                                         default=["Seg", "Qua", "Sex"])
+            
+            # Converter nomes dos dias para números (0-6)
+            mapa_dias = {"Seg":0, "Ter":1, "Qua":2, "Qui":3, "Sex":4, "Sáb":5, "Dom":6}
+            dias_codigos = [mapa_dias[d] for d in dias_semana]
+
+            st.markdown("---")
+            st.markdown("### Calibragem de Carga")
+            conhecimento = st.slider("Quanto você já sabe? (1=Leigo, 10=Expert)", 1, 10, 3)
+            dif = st.slider("Dificuldade da Matéria (1=Fácil, 5=Insana)", 1, 5, 3)
+            
+            gerar = st.form_submit_button("🔨 Construir Cronograma", type="primary")
+            
+            if gerar and meta:
                 dt_alvo = datetime.combine(data_alvo, datetime.min.time())
-                sucesso, res = planejador.gerar_cronograma_prova(meta, tarefa_base, dt_alvo, conhecimento, dif, [0,1,2,3,4])
+                
+                sucesso, resultado = planejador.gerar_cronograma_prova(
+                    meta, tarefa_base, dt_alvo, conhecimento, dif, dias_codigos
+                )
+                
                 if sucesso:
-                    st.success("Plano criado!")
-                    for item in res: database.adicionar_evento(item['tarefa'], item['inicio'], item['fim'], item['minutos'])
-                else: st.error(res)
+                    st.success(f"Plano criado! Foram agendadas **{len(resultado)} sessões** até o dia da prova.")
+                    
+                    # Salvar no banco
+                    progress_text = "Gravando no calendário..."
+                    my_bar = st.progress(0, text=progress_text)
+                    
+                    for i, item in enumerate(resultado):
+                        database.adicionar_evento(item['tarefa'], item['inicio'], item['fim'], item['minutos'])
+                        my_bar.progress((i + 1) / len(resultado), text=progress_text)
+                    
+                    my_bar.empty()
+                    st.balloons()
+                    st.markdown("### 👀 Prévia do Plano:")
+                    for item in resultado[:3]: # Mostra só os 3 primeiros
+                        data_fmt = datetime.fromisoformat(item['inicio']).strftime("%d/%m")
+                        st.write(f"📅 {data_fmt}: {item['minutos']} min - {item['tarefa']}")
+                    st.info("Veja o plano completo no Dashboard.")
+                    
+                else:
+                    st.error(resultado)
         
     elif menu == 'Configurações':
         if st.button("Reset"):
